@@ -1,0 +1,142 @@
+name: BMAD Setup
+
+on:   
+  push:
+      paths:
+        - ".github/workflows/bmad-setup.yml"
+
+# ---------------------------------------------------------------------------
+# 💾 *Repo Write Permission Required for Auto-Commit + Push*
+# ---------------------------------------------------------------------------
+permissions:
+  contents: write
+
+jobs:
+  setup-bmad:
+    runs-on: ubuntu-latest   # GitHub Default Runner (Linux execution environment)
+
+    steps:
+
+    # -----------------------------------------------------------
+    # 1) Checkout Repository Source
+    # -----------------------------------------------------------
+    - uses: actions/checkout@v4
+
+    # -----------------------------------------------------------
+    # 2) Setup Node Runtime (v22)
+    # -----------------------------------------------------------
+    - name: Use Node v22
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    # -----------------------------------------------------------
+    # 3) Resolve Repo Values
+    # -----------------------------------------------------------
+    - name: Resolve repo details
+      id: resolve
+      run: |
+        REPO_NAME="${GITHUB_REPOSITORY##*/}"
+        echo "new_branch=${REPO_NAME}_wb" >> $GITHUB_OUTPUT        # Target Branch
+
+    # -----------------------------------------------------------
+    # 4) Fully Automated BMAD Installation (Expect Script)
+    # -----------------------------------------------------------
+    - name: Install BMAD Fully Non-Interactive
+      run: |
+        # Skip execution if BMAD already installed
+        if [ -d ".bmad" ] || [ -d ".bmad-core" ]; then
+          echo "⏭ BMAD already installed — skipping installation."
+          exit 0
+        fi
+
+        echo "🛠 Installing BMAD..."
+        sudo apt-get update && sudo apt-get install -y expect
+
+        expect << 'EOF'
+        spawn npx bmad-method install
+
+        # 1️⃣ Enter project directory → press "." + Enter
+        expect "Enter the full path"
+        send ".\r"
+
+        # 2️⃣ Default selection → Press ENTER
+        expect "Select what to install/update"
+        send "\r"
+
+        # 3️⃣ PRD sharded? → N
+        expect "sharded into multiple files"
+        send "N\r"
+
+        # 4️⃣ Architecture doc sharded? → N
+        expect "architecture documentation"
+        send "N\r"
+
+        # 5️⃣ Acknowledge and continue? → Y
+        expect "want to proceed"
+        send "Y\r"
+
+        # 6️⃣ IDE selection → Select ALL (press a then ENTER)
+        expect "Which IDE"
+        send "a\r"
+
+        # 7️⃣ Copilot settings → press ENTER (use default)
+        expect "Copilot settings"
+        send "\r"
+
+        # 8️⃣ Prefix agent keys with bmad-? → Y
+        expect "Prefix agent keys"
+        send "Y\r"
+
+        # 9️⃣ Prefix command keys with bmad:tasks:? → Y
+        expect "Prefix command keys"
+        send "Y\r"
+
+        # 🔟 Auggie CLI commands → select all (press a then ENTER)
+        expect "Select Auggie CLI command locations"
+        send "a\r"
+
+        # 1️⃣1️⃣ Include pre-built web bundles? → Y
+        expect "pre-built web bundles"
+        send "Y\r"
+
+        # 1️⃣2️⃣ Select bundles → Enter (default = ALL)
+        expect "What web bundles"
+        send "\r"
+
+        # 1️⃣3️⃣ Directory → Press ENTER (./web-bundles default)
+        expect "Enter directory for web bundles"
+        send "\r"
+
+        expect eof
+        EOF
+
+
+    # ----------------------------------------------------------------------
+    # 5) AUTO-COMMIT BMAD OUTPUT BACK TO THE REPO
+    # ----------------------------------------------------------------------
+    - name: Commit & Push BMAD output into repo
+      run: |
+        git config user.name "github-actions"
+        git config user.email "github-actions@github.com"
+
+        git add -A
+        git commit -m "BMAD auto-install artifacts" || echo "No BMAD changes to commit"
+        git push origin HEAD
+
+    # ----------------------------------------------------------------------
+    # 6) CREATE NEW BRANCH ONLY IF NOT EXISTS
+    # ----------------------------------------------------------------------
+    - name: Create & Push branch only if not exists
+      run: |
+        NEW_BRANCH="${{ steps.resolve.outputs.new_branch }}"
+
+        git fetch --all
+
+        if git ls-remote --exit-code --heads origin "$NEW_BRANCH" > /dev/null 2>&1; then
+          echo "⏭ Branch '$NEW_BRANCH' already exists — skipping branch creation."
+        else
+          echo "🌿 Creating new branch: $NEW_BRANCH"
+          git checkout -B "$NEW_BRANCH" origin/main
+          git push -u origin "$NEW_BRANCH"
+        fi
